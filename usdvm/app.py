@@ -227,6 +227,7 @@ class MainWindow(QMainWindow):
         self.btn_go_root.clicked.connect(self.open_root_from_edit)
         self.root_edit.returnPressed.connect(self.open_root_from_edit)
         self.btn_new_asset.clicked.connect(self.new_asset)
+        self.btn_delete_asset.clicked.connect(self.delete_asset)
         self.btn_rescan.clicked.connect(self.rescan)
         self.asset_list.currentItemChanged.connect(self.on_asset_selected)
         self.btn_new_version.clicked.connect(self.new_version)

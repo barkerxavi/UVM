@@ -3,8 +3,11 @@ import subprocess
 from pathlib import Path
 
 
-USD_INSTALL_DIR = Path(
-    r"C:\Users\xbarker\tmp\usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1"
+UVM_ROOT = Path(__file__).resolve().parent.parent
+
+USD_INSTALL_DIR = (
+    UVM_ROOT
+    / "usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1"
 )
 
 
