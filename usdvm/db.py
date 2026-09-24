@@ -45,6 +45,10 @@ class ProjectDB:
         self.conn.commit()
         return self.get_asset(name)
 
+    def remove_asset(self, asset_id: int):
+        self.conn.execute("DELETE FROM assets WHERE id=?", (asset_id,))
+        self.conn.commit()
+
     def get_asset(self, name: str):
         return self.conn.execute("SELECT * FROM assets WHERE name=?", (name,)).fetchone()
 

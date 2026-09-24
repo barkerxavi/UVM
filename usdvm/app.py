@@ -1,4 +1,5 @@
 import re
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -19,6 +20,94 @@ from . import usdview_launcher
 ORG = "XaviTools"
 APP = "USDVersionManager"
 ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+ORANGE = "#ff7a1a"
+ORANGE_DARK = "#cc5f0f"
+BG = "#1b1b1b"
+BG_ALT = "#242424"
+BG_FIELD = "#262626"
+BORDER = "#3a3a3a"
+TEXT = "#f0f0f0"
+TEXT_DIM = "#8a8a8a"
+
+THEME_QSS = f"""
+QWidget {{
+    background-color: {BG};
+    color: {TEXT};
+    font-size: 10pt;
+}}
+QMainWindow, QStatusBar {{
+    background-color: {BG};
+    color: {TEXT};
+}}
+QLineEdit, QTextEdit {{
+    background-color: {BG_FIELD};
+    border: 1px solid {BORDER};
+    border-radius: 3px;
+    padding: 4px;
+    color: {TEXT};
+    selection-background-color: {ORANGE};
+    selection-color: {BG};
+}}
+QPushButton {{
+    background-color: {BG_FIELD};
+    border: 1px solid {ORANGE};
+    border-radius: 4px;
+    padding: 6px 12px;
+    color: {ORANGE};
+    font-weight: 600;
+}}
+QPushButton:hover {{
+    background-color: {ORANGE};
+    color: {BG};
+}}
+QPushButton:pressed {{
+    background-color: {ORANGE_DARK};
+    color: {BG};
+    border-color: {ORANGE_DARK};
+}}
+QPushButton:disabled {{
+    border-color: {BORDER};
+    color: {TEXT_DIM};
+}}
+QListWidget, QTableWidget {{
+    background-color: {BG_ALT};
+    alternate-background-color: {BG_FIELD};
+    border: 1px solid {BORDER};
+    gridline-color: {BORDER};
+    color: {TEXT};
+}}
+QListWidget::item:selected, QTableWidget::item:selected {{
+    background-color: {ORANGE};
+    color: {BG};
+}}
+QHeaderView::section {{
+    background-color: {BG_FIELD};
+    color: {ORANGE};
+    padding: 5px;
+    border: 1px solid {BORDER};
+    font-weight: 600;
+}}
+QSplitter::handle {{
+    background-color: {BORDER};
+}}
+QSplitter::handle:hover {{
+    background-color: {ORANGE};
+}}
+QScrollBar:vertical, QScrollBar:horizontal {{
+    background: {BG_ALT};
+}}
+QScrollBar::handle {{
+    background: {BORDER};
+    border-radius: 3px;
+}}
+QScrollBar::handle:hover {{
+    background: {ORANGE};
+}}
+QMessageBox, QInputDialog, QFileDialog {{
+    background-color: {BG};
+}}
+"""
 
 
 class MainWindow(QMainWindow):
@@ -52,12 +141,14 @@ class MainWindow(QMainWindow):
         self.btn_browse_root = QPushButton("Browse...")
         self.btn_go_root = QPushButton("Open")
         self.btn_new_asset = QPushButton("New Asset...")
+        self.btn_delete_asset = QPushButton("Delete Asset...")
         self.btn_rescan = QPushButton("Rescan")
         top.addWidget(QLabel("Asset root:"))
         top.addWidget(self.root_edit, 1)
         top.addWidget(self.btn_go_root)
         top.addWidget(self.btn_browse_root)
         top.addWidget(self.btn_new_asset)
+        top.addWidget(self.btn_delete_asset)
         top.addWidget(self.btn_rescan)
         outer.addLayout(top)
 
@@ -104,7 +195,7 @@ class MainWindow(QMainWindow):
         usdview_layout = QVBoxLayout(usdview_panel)
 
         title = QLabel("usdview")
-        title.setStyleSheet("font-weight: bold;")
+        title.setStyleSheet(f"font-weight: bold; color: {ORANGE}; font-size: 11pt;")
         usdview_layout.addWidget(title)
 
         note = QLabel(
@@ -250,6 +341,19 @@ class MainWindow(QMainWindow):
         adir.mkdir(parents=True, exist_ok=True)
         self.db.add_asset(name)
         self.rescan()
+
+    def delete_asset(self):
+        asset_id = self._selected_asset_id()
+        if asset_id is None:
+            QMessageBox.information(self, "No asset", "Select an asset first.")
+            return
+        if QMessageBox.question(
+            self, "Confirm Deletion",
+            "Are you sure you want to delete this asset and all its versions?"
+        ) != QMessageBox.Yes:
+            return
+        self.db.remove_asset(asset_id)
+        self.refresh_assets()
 
     # ---------------- assets / versions ----------------
     def on_asset_selected(self, current, previous):
@@ -423,6 +527,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    app.setStyleSheet(THEME_QSS)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

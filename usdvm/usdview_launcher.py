@@ -1,34 +1,98 @@
-"""Launches usdview (https://docs.omniverse.nvidia.com/usd/latest/usdview/index.html)
-as its own process.
-
-usdview is a full standalone Qt application with its own event loop and a
-Hydra/OpenGL viewport - it can't be embedded as a child widget inside another
-PySide6 app in the same process on Windows or Linux, so the practical
-integration is: launch it pointed at the file you care about, and it opens
-in its own window alongside ours.
-"""
-
-import shutil
+import os
 import subprocess
 from pathlib import Path
 
 
+USD_INSTALL_DIR = Path(
+    r"C:\Users\xbarker\tmp\usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1"
+)
+
+
 def find_usdview():
-    """Path to the usdview executable, or None if it's not on PATH."""
-    return shutil.which("usdview")
+    """Return the standalone USD usdview script."""
+    usdview = USD_INSTALL_DIR / "bin" / "usdview"
+
+    if usdview.is_file():
+        return usdview
+
+    return None
+
+
+def _usd_environment():
+    """Build the environment required by the standalone USD distribution."""
+
+    env = os.environ.copy()
+
+    python_dir = USD_INSTALL_DIR / "python"
+    pip_packages = USD_INSTALL_DIR / "pip-packages"
+    lib_dir = USD_INSTALL_DIR / "lib"
+    plugin_dir = USD_INSTALL_DIR / "plugin" / "usd"
+    bin_dir = USD_INSTALL_DIR / "bin"
+
+    # Match NVIDIA's set_usd_python_env.bat
+    env["PATH"] = os.pathsep.join([
+        str(python_dir),
+        str(pip_packages / "bin"),
+        env.get("PATH", ""),
+    ])
+
+    env["PYTHONPATH"] = os.pathsep.join([
+        str(pip_packages),
+        env.get("PYTHONPATH", ""),
+    ])
+
+    # Match NVIDIA's set_usd_env.bat
+    env["PATH"] = os.pathsep.join([
+        str(lib_dir),
+        str(plugin_dir),
+        str(bin_dir),
+        env.get("PATH", ""),
+        str(bin_dir),
+        str(plugin_dir),
+        str(lib_dir),
+    ])
+
+    env["PYTHONPATH"] = os.pathsep.join([
+        str(lib_dir / "python"),
+        env.get("PYTHONPATH", ""),
+    ])
+
+    env["PXR_MTLX_STDLIB_SEARCH_PATHS"] = str(
+        USD_INSTALL_DIR / "libraries"
+    )
+
+    return env
 
 
 def launch(path: Path, extra_args=None):
-    """Start usdview on `path`. Returns the subprocess.Popen so callers can
-    keep a reference (and optionally check on / terminate it later)."""
-    exe = find_usdview()
-    if not exe:
+    """Launch standalone USD usdview on a USD file."""
+
+    usdview = find_usdview()
+
+    if usdview is None:
         raise FileNotFoundError(
-            "usdview wasn't found on PATH. It ships with a USD install - e.g. "
-            "'pip install usd-core' in this environment, or add your USD "
-            "build's bin/ folder to PATH."
+            f"Standalone USD usdview not found:\n"
+            f"{USD_INSTALL_DIR / 'bin' / 'usdview'}"
         )
-    args = [exe, str(path)]
+
+    python = USD_INSTALL_DIR / "python" / "python.exe"
+
+    if not python.is_file():
+        raise FileNotFoundError(
+            f"Standalone USD Python not found:\n{python}"
+        )
+
+    args = [
+        str(python),
+        str(usdview),
+        str(path),
+    ]
+
     if extra_args:
         args.extend(extra_args)
-    return subprocess.Popen(args)
+
+    return subprocess.Popen(
+        args,
+        env=_usd_environment(),
+        cwd=str(USD_INSTALL_DIR),
+    )
