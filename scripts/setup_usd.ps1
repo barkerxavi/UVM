@@ -22,7 +22,7 @@ Invoke-WebRequest `
 Write-Host "Extracting USD..."
 Expand-Archive `
     -Path $ZipPath `
-    -DestinationPath $ProjectRoot
+    -DestinationPath $ProjectRoot/$UsdVersion
 
 Remove-Item $ZipPath -Force
 
