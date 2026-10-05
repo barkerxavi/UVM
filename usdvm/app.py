@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QSettings
+from PySide6.QtGui import QSurfaceFormat
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QTableWidget, QTableWidgetItem,
+    QListWidget, QListWidgetItem, QTableWidget, QTableWidgetItem, QComboBox,
     QPushButton, QLabel, QLineEdit, QFileDialog, QInputDialog, QMessageBox,
-    QAbstractItemView, QHeaderView, QSplitter, QTextEdit,
+    QAbstractItemView, QHeaderView, QSplitter, QTextEdit, QDockWidget,
     QTreeWidget, QTreeWidgetItem,
 )
 
@@ -17,6 +18,7 @@ from .db import ProjectDB
 from . import scanner
 from . import usd_writer
 from . import usdview_launcher
+from .gl_viewer import MeshLoadThread, UsdMeshViewer
 
 ORG = "XaviTools"
 APP = "USDVersionManager"
@@ -121,6 +123,7 @@ class MainWindow(QMainWindow):
         self.root: Optional[Path] = None
         self.db: Optional[ProjectDB] = None
         self._usdview_procs = []  # keep references so Popen objects aren't GC'd
+        self._mesh_loaders = []
         self._prim_info = {}
 
         self._build_ui()
@@ -180,7 +183,11 @@ class MainWindow(QMainWindow):
         self.btn_set_current = QPushButton("Set as Current")
         self.btn_reveal = QPushButton("Reveal in File Manager")
         self.btn_inspect = QPushButton("Inspect")
-        for b in (self.btn_new_version, self.btn_set_current, self.btn_reveal, self.btn_inspect):
+        self.btn_open_gl_viewer = QPushButton("OpenGL Preview")
+        for b in (
+            self.btn_new_version, self.btn_set_current, self.btn_reveal,
+            self.btn_inspect, self.btn_open_gl_viewer,
+        ):
             btn_row.addWidget(b)
         center_layout.addLayout(btn_row)
 
@@ -206,13 +213,13 @@ class MainWindow(QMainWindow):
         usdview_panel.setMinimumWidth(240)
         usdview_layout = QVBoxLayout(usdview_panel)
 
-        title = QLabel("usdview")
+        title = QLabel("USD Viewers")
         title.setStyleSheet(f"font-weight: bold; color: {ORANGE}; font-size: 11pt;")
         usdview_layout.addWidget(title)
 
         note = QLabel(
-            "usdview is its own standalone application - this opens it in a "
-            "separate window pointed at your selection, it isn't embedded here."
+            "Open an in-app OpenGL preview of polygon meshes, or launch the "
+            "standalone usdview application."
         )
         note.setWordWrap(True)
         usdview_layout.addWidget(note)
@@ -226,6 +233,25 @@ class MainWindow(QMainWindow):
         usdview_layout.addStretch(1)
 
         splitter.addWidget(usdview_panel)
+
+        self.gl_viewer_dock = QDockWidget("OpenGL Preview", self)
+        self.gl_viewer_dock.setObjectName("OpenGLPreviewDock")
+        self.gl_viewer_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        viewer_content = QWidget(self.gl_viewer_dock)
+        viewer_layout = QVBoxLayout(viewer_content)
+        representation_row = QHBoxLayout()
+        representation_row.addWidget(QLabel("Representation:"))
+        self.gl_representation = QComboBox()
+        self.gl_representation.addItem("Proxy", "proxy")
+        self.gl_representation.addItem("Render", "render")
+        representation_row.addWidget(self.gl_representation)
+        representation_row.addStretch(1)
+        viewer_layout.addLayout(representation_row)
+        self.gl_viewer = UsdMeshViewer(viewer_content)
+        viewer_layout.addWidget(self.gl_viewer)
+        self.gl_viewer_dock.setWidget(viewer_content)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.gl_viewer_dock)
+        self.gl_viewer_dock.hide()
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -248,6 +274,8 @@ class MainWindow(QMainWindow):
         self.btn_reveal.clicked.connect(self.reveal_selected)
         self.btn_inspect.clicked.connect(self.inspect_selected)
         self.btn_launch_usdview.clicked.connect(self.launch_usdview)
+        self.btn_open_gl_viewer.clicked.connect(self.open_gl_viewer)
+        self.gl_representation.currentIndexChanged.connect(self._reload_gl_representation)
         self.prim_tree.currentItemChanged.connect(self._show_prim_details)
 
     # ---------------- project ----------------
@@ -586,6 +614,62 @@ class MainWindow(QMainWindow):
         self._usdview_procs.append(proc)
         self.statusBar().showMessage(f"Opened {target.name} in usdview")
 
+    def open_gl_viewer(self):
+        version_id = self._selected_version_id()
+        asset_id = self._selected_asset_id()
+        if version_id is not None:
+            version = self.db.get_version(version_id)
+            target = self.root / version["file_path"]
+        elif asset_id is not None:
+            asset = self.db.get_asset_by_id(asset_id)
+            target = scanner.wrapper_path(self.root, asset["name"])
+            if not target.is_file():
+                QMessageBox.information(
+                    self, "Nothing to preview",
+                    f"'{asset['name']}' doesn't have a current version set yet.",
+                )
+                return
+        else:
+            QMessageBox.information(self, "Nothing selected", "Select an asset or version first.")
+            return
+
+        self.gl_viewer_dock.setWindowTitle(f"OpenGL Preview — {target.name}")
+        self.gl_viewer_dock.show()
+        self.gl_viewer_dock.raise_()
+        self._gl_preview_path = target
+        self._load_gl_preview()
+
+    def _reload_gl_representation(self, _index):
+        if getattr(self, "_gl_preview_path", None) is not None:
+            self._load_gl_preview()
+
+    def _load_gl_preview(self):
+        target = self._gl_preview_path
+        self._mesh_load_generation = getattr(self, "_mesh_load_generation", 0) + 1
+        generation = self._mesh_load_generation
+        self.gl_viewer.set_error(
+            f"Loading {self.gl_representation.currentText().lower()} representation…"
+        )
+        loader = MeshLoadThread(
+            target,
+            preferred_purpose=self.gl_representation.currentData(),
+            parent=self,
+        )
+        loader.loaded.connect(
+            lambda data, count: self.gl_viewer.set_mesh_data(data, count)
+            if generation == self._mesh_load_generation else None
+        )
+        loader.failed.connect(
+            lambda message: self.gl_viewer.set_error(message)
+            if generation == self._mesh_load_generation else None
+        )
+        loader.finished.connect(
+            lambda: self._mesh_loaders.remove(loader)
+            if loader in self._mesh_loaders else None
+        )
+        self._mesh_loaders.append(loader)
+        loader.start()
+
     def closeEvent(self, event):
         if self.db:
             self.db.close()
@@ -593,6 +677,11 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    surface_format = QSurfaceFormat()
+    surface_format.setVersion(3, 2)
+    surface_format.setProfile(QSurfaceFormat.CoreProfile)
+    surface_format.setDepthBufferSize(24)
+    QSurfaceFormat.setDefaultFormat(surface_format)
     app = QApplication(sys.argv)
     app.setStyleSheet(THEME_QSS)
     win = MainWindow()
