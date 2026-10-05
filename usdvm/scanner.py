@@ -42,7 +42,11 @@ def discover_versions(root: Path, asset_name: str):
         if not m:
             continue
         usd_files = sorted(
-            f for f in vdir.iterdir() if f.is_file() and f.suffix.lower() in USD_EXTS
+            f
+            for f in vdir.iterdir()
+            if f.is_file()
+            and f.suffix.lower() in USD_EXTS
+            and f.stem == asset_name
         )
         if not usd_files:
             continue
@@ -65,7 +69,7 @@ def create_version_from_file(root: Path, asset_name: str, version_num: int, sour
     vdir = version_dir(root, asset_name, version_num)
     vdir.mkdir(parents=True, exist_ok=True)
     ext = source_file.suffix or ".usd"
-    dest = vdir / f"{asset_name}_v{version_num:03d}{ext}"
+    dest = vdir / f"{asset_name}{ext}"
     shutil.copy2(source_file, dest)
     return dest
 

@@ -6,3 +6,4 @@ usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1/*
 .usdvm/usdvm.db
 build/
 dist/
+.DS_Store

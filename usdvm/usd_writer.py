@@ -13,6 +13,28 @@ from pathlib import Path
 SUBLAYER_RE = re.compile(r"@\.?/?([^@]+)@")
 
 
+def _format_attribute_value(attribute):
+    try:
+        value = attribute.Get()
+    except Exception as exc:
+        return f"<unavailable: {exc}>"
+    if value is None:
+        return "(no value)"
+
+    # USD array attributes can contain thousands of values. Show short arrays
+    # in full and use an ellipsis for larger ones.
+    if str(attribute.GetTypeName()).endswith("[]"):
+        try:
+            if len(value) > 1:
+                return "..."
+            if len(value) == 1:
+                return str(value[0])
+            return "[]"
+        except TypeError:
+            pass
+    return str(value)
+
+
 def read_current_target(wrapper_path: Path):
     """Parse a wrapper .usda file's subLayers entry back out as a plain
     string path, so disk can be treated as the source of truth for
@@ -49,12 +71,29 @@ def try_inspect_stage(usd_path: Path) -> dict:
         stage = Usd.Stage.Open(str(usd_path))
         if stage is None:
             return {"available": True, "error": "Could not open stage."}
-        prims = [str(p.GetPath()) for p in stage.Traverse()]
+        traversed_prims = list(stage.Traverse())
+        prims = [str(prim.GetPath()) for prim in traversed_prims]
+        prim_details = {
+            str(prim.GetPath()): {
+                "type": str(prim.GetTypeName()),
+                "active": prim.IsActive(),
+                "defined": prim.IsDefined(),
+                "abstract": prim.IsAbstract(),
+                "instance": prim.IsInstance(),
+                "attributes": sorted(
+                    f"{attr.GetName()}: {_format_attribute_value(attr)}"
+                    for attr in prim.GetAttributes()
+                ),
+                "relationships": sorted(rel.GetName() for rel in prim.GetRelationships()),
+            }
+            for prim in traversed_prims
+        }
         default_prim = stage.GetDefaultPrim()
         return {
             "available": True,
             "prim_count": len(prims),
-            "prims": prims[:25],
+            "prims": prims,
+            "prim_details": prim_details,
             "default_prim": str(default_prim.GetPath()) if default_prim else None,
             "up_axis": stage.GetMetadata("upAxis") if stage.HasMetadata("upAxis") else None,
         }

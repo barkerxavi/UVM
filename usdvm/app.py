@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QLineEdit, QFileDialog, QInputDialog, QMessageBox,
     QAbstractItemView, QHeaderView, QSplitter, QTextEdit,
+    QTreeWidget, QTreeWidgetItem,
 )
 
 from .db import ProjectDB
@@ -120,6 +121,7 @@ class MainWindow(QMainWindow):
         self.root: Optional[Path] = None
         self.db: Optional[ProjectDB] = None
         self._usdview_procs = []  # keep references so Popen objects aren't GC'd
+        self._prim_info = {}
 
         self._build_ui()
         self._connect_signals()
@@ -182,10 +184,20 @@ class MainWindow(QMainWindow):
             btn_row.addWidget(b)
         center_layout.addLayout(btn_row)
 
-        self.details = QTextEdit()
-        self.details.setReadOnly(True)
-        self.details.setPlaceholderText("Select a version and click Inspect to see details here.")
-        center_layout.addWidget(self.details, 1)
+        inspection_splitter = QSplitter(Qt.Horizontal)
+        self.prim_tree = QTreeWidget()
+        self.prim_tree.setHeaderHidden(True)
+        self.prim_tree.addTopLevelItem(
+            QTreeWidgetItem(["Select a version and click Inspect to see prims here."])
+        )
+        self.prim_details = QTextEdit()
+        self.prim_details.setReadOnly(True)
+        self.prim_details.setPlaceholderText("Select a prim to see its details.")
+        inspection_splitter.addWidget(self.prim_tree)
+        inspection_splitter.addWidget(self.prim_details)
+        inspection_splitter.setStretchFactor(0, 1)
+        inspection_splitter.setStretchFactor(1, 1)
+        center_layout.addWidget(inspection_splitter, 1)
 
         splitter.addWidget(center)
 
@@ -218,7 +230,8 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
-        splitter.setSizes([220, 700, 260])
+        splitter.setCollapsible(2, True)
+        splitter.setSizes([220, 960, 0])
 
         self.statusBar().showMessage("Ready")
 
@@ -235,6 +248,7 @@ class MainWindow(QMainWindow):
         self.btn_reveal.clicked.connect(self.reveal_selected)
         self.btn_inspect.clicked.connect(self.inspect_selected)
         self.btn_launch_usdview.clicked.connect(self.launch_usdview)
+        self.prim_tree.currentItemChanged.connect(self._show_prim_details)
 
     # ---------------- project ----------------
     def choose_root(self):
@@ -310,7 +324,7 @@ class MainWindow(QMainWindow):
             item.setData(Qt.UserRole, row["id"])
             self.asset_list.addItem(item)
         self.version_table.setRowCount(0)
-        self.details.clear()
+        self._clear_inspection()
         self.statusBar().showMessage(f"{self.asset_list.count()} asset(s)")
 
     def new_asset(self):
@@ -359,7 +373,7 @@ class MainWindow(QMainWindow):
     # ---------------- assets / versions ----------------
     def on_asset_selected(self, current, previous):
         self.version_table.setRowCount(0)
-        self.details.clear()
+        self._clear_inspection()
         if not current or not self.db:
             return
         self._load_versions(current.data(Qt.UserRole))
@@ -464,20 +478,72 @@ class MainWindow(QMainWindow):
         version = self.db.get_version(version_id)
         path = self.root / version["file_path"]
         info = usd_writer.try_inspect_stage(path)
-
-        lines = [f"File: {path}", f"Size: {path.stat().st_size:,} bytes", ""]
+        self.prim_tree.clear()
+        self._prim_info = info.get("prim_details", {})
         if not info.get("available"):
-            lines.append(info.get("note", ""))
+            self.prim_tree.addTopLevelItem(QTreeWidgetItem([info.get("note", "")]))
+            self.prim_details.setPlainText(f"File: {path}\nSize: {path.stat().st_size:,} bytes")
         elif "error" in info:
-            lines.append(f"Error reading stage: {info['error']}")
+            self.prim_tree.addTopLevelItem(
+                QTreeWidgetItem([f"Error reading stage: {info['error']}"])
+            )
+            self.prim_details.setPlainText(f"File: {path}\nSize: {path.stat().st_size:,} bytes")
         else:
-            lines.append(f"Default prim: {info.get('default_prim')}")
-            lines.append(f"Up axis: {info.get('up_axis')}")
-            lines.append(f"Prim count: {info.get('prim_count')}")
-            lines.append("")
-            lines.append("Prims (first 25):")
-            lines.extend(info.get("prims", []))
-        self.details.setPlainText("\n".join(lines))
+            prims_root = self.prim_tree.invisibleRootItem()
+            nodes = {}
+            for prim_path in info.get("prims", []):
+                parent = prims_root
+                current_path = ""
+                for part in prim_path.strip("/").split("/"):
+                    current_path += f"/{part}"
+                    if current_path not in nodes:
+                        node = QTreeWidgetItem([part])
+                        node.setData(0, Qt.UserRole, current_path)
+                        parent.addChild(node)
+                        nodes[current_path] = node
+                    parent = nodes[current_path]
+            self.prim_details.setPlainText(
+                f"File: {path}\nSize: {path.stat().st_size:,} bytes\n\n"
+                f"Default prim: {info.get('default_prim')}\n"
+                f"Up axis: {info.get('up_axis')}\n"
+                f"Prim count: {info.get('prim_count')}\n\n"
+                "Select a prim to see its details."
+            )
+        self.prim_tree.expandAll()
+
+    def _clear_inspection(self):
+        self.prim_tree.clear()
+        self.prim_tree.addTopLevelItem(
+            QTreeWidgetItem(["Select a version and click Inspect to see prims here."])
+        )
+        self.prim_details.clear()
+        self._prim_info = {}
+
+    def _show_prim_details(self, current, _previous):
+        if current is None:
+            return
+        prim_path = current.data(0, Qt.UserRole)
+        if not prim_path:
+            return
+        details = self._prim_info.get(prim_path)
+        if details is None:
+            self.prim_details.setPlainText(prim_path)
+            return
+        lines = [
+            f"Path: {prim_path}",
+            f"Type: {details.get('type', '') or '(untyped)'}",
+            f"Active: {details.get('active')}",
+            f"Defined: {details.get('defined')}",
+            f"Abstract: {details.get('abstract')}",
+            f"Instance: {details.get('instance')}",
+            "",
+            "Attributes:",
+            *[f"  {attribute}" for attribute in details.get("attributes", [])],
+            "",
+            "Relationships:",
+            *[f"  {name}" for name in details.get("relationships", [])],
+        ]
+        self.prim_details.setPlainText("\n".join(lines))
 
     # ---------------- usdview ----------------
     def _refresh_usdview_status(self):
