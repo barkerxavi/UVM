@@ -8,6 +8,8 @@ to basic file info.
 """
 
 import re
+import os
+import tempfile
 from pathlib import Path
 
 SUBLAYER_RE = re.compile(r"@\.?/?([^@]+)@")
@@ -56,7 +58,18 @@ def write_sublayer_wrapper(wrapper_path: Path, target_relative_path: str):
         "    ]\n"
         ")\n"
     )
-    Path(wrapper_path).write_text(content, encoding="utf-8")
+    wrapper_path = Path(wrapper_path)
+    # A failed write must leave the previous current version readable.
+    fd, temporary = tempfile.mkstemp(prefix=".uvm-", dir=wrapper_path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, wrapper_path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def try_inspect_stage(usd_path: Path) -> dict:

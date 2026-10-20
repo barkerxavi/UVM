@@ -1,530 +1,110 @@
 # USD Version Manager
 
-A small cross-platform (Windows + Linux) desktop app for managing sequential versions of USD assets. Built with Python + PySide6.
+UVM is a Python/PySide6 desktop application for publishing sequential USD asset versions, inspecting stages, and switching a stable wrapper to the current version.
 
-UVM does **not** require a full USD installation to manage, version, or write USD wrapper files. Optional USD inspection and `usdview` support are provided through a standalone USD distribution.
+Licensed under the [MIT License](LICENSE).
 
-## How it works
+## Release targets
 
-### On disk
+| Platform | Python | Architecture |
+| --- | --- | --- |
+| Rocky Linux 9.6, GNOME 40.4.0 | 3.9.12 | x86_64 |
+| Windows 11 | 3.11 | x86_64 |
 
-Each project is a root folder with one subfolder per asset, and one `v###` subfolder per version:
+These are release acceptance targets, not a claim that native desktop acceptance has already passed. See [release validation](docs/RELEASING.md). The pinned runtime is PySide6 6.6.3.1, NumPy 1.26.4, and usd-core 25.5.1. These versions have binary wheels for both target Python versions. Avoid unbounded upgrades: newer Qt, NumPy and USD releases may drop Python 3.9 or require a newer glibc. The Linux Qt wheels require glibc 2.28 or later; Rocky 9 uses glibc 2.34.
 
-```text
-my_project/
-├── .usdvm/
-│   └── usdvm.db                  <- metadata database (auto-created)
-│
-└── hero_character/
-    ├── hero_character.usd        <- wrapper; always points to current version
-    │
-    ├── v001/
-    │   └── hero_character_v001.usd
-    │
-    ├── v002/
-    │   └── hero_character_v002.usd
-    │
-    └── v003/
-        └── hero_character_v003.usd
-```
+## Install from source
 
-The wrapper file (`<asset>.usd`) is a tiny plain-text `.usda` stage whose `subLayers` points at the current version:
+Use a fresh virtual environment and the system Python specified above. Do not replace Rocky's system interpreter. A supported distribution update to Python 3.9 keeps important vendor security fixes; Python 3.9.12 itself is old and must be assessed under your deployment policy.
 
-```usda
-#usda 1.0
+### Rocky Linux 9.6
 
-(
-    subLayers = [
-        @./v003/hero_character_v003.usd@
-    ]
-)
-```
-
-Anything downstream — a shot, a render, another asset, etc. — references:
-
-```text
-hero_character.usd
-```
-
-and therefore always gets whichever version has been marked **current**.
-
-This means downstream references do not need to be changed when an asset is bumped to a new version.
-
-### No USD Python bindings required for version management
-
-Writing the wrapper file does **not** require the USD Python bindings (`pxr`).
-
-The wrapper is simply a plain-text `.usda` file, so UVM can create and update it without having USD installed.
-
-The database and filesystem operations also do not depend on `pxr`.
-
-## Quick-start workflow
-
-The basic UVM workflow is:
-
-```text
-Create/Open Project
-       │
-       ▼
-    Add Asset
-       │
-       ▼
-   Add Version
-       │
-       ▼
-    v001/
-       │
-       ▼
- Set v001 Current
-       │
-       ▼
- asset.usd ──────► v001/asset_v001.usd
-       │
-       ▼
-   Work on v002
-       │
-       ▼
-   Add Version
-       │
-       ▼
-    v002/
-       │
-       ▼
- Set v002 Current
-       │
-       ▼
- asset.usd ──────► v002/asset_v002.usd
-```
-
-### 1. Create or open a project
-
-Choose the root folder that will contain your assets.
-
-For example:
-
-```text
-U:\projects\my_project
-```
-
-UVM automatically creates:
-
-```text
-U:\projects\my_project\.usdvm\usdvm.db
-```
-
-if the project has not been opened before.
-
-### 2. Add an asset
-
-Create an asset in UVM, for example:
-
-```text
-hero_character
-```
-
-This creates the asset directory:
-
-```text
-my_project/
-└── hero_character/
-```
-
-### 3. Add the first version
-
-Use **New Version** and select the USD file you want to publish.
-
-For example, select:
-
-```text
-hero_character.usd
-```
-
-UVM copies it into:
-
-```text
-hero_character/
-└── v001/
-    └── hero_character_v001.usd
-```
-
-An optional comment can be added to describe the version:
-
-```text
-Initial sculpt and materials
-```
-
-### 4. Set the version as current
-
-Select `v001` and choose **Set Current**.
-
-UVM updates both:
-
-```text
-.usdvm/usdvm.db
-```
-
-and:
-
-```text
-hero_character/hero_character.usd
-```
-
-The wrapper now points to:
-
-```text
-./v001/hero_character_v001.usd
-```
-
-### 5. Reference the wrapper downstream
-
-In Houdini, Maya, another USD application, or a render pipeline, reference:
-
-```text
-hero_character/hero_character.usd
-```
-
-rather than referencing:
-
-```text
-hero_character/v001/hero_character_v001.usd
-```
-
-The wrapper is the stable asset reference.
-
-### 6. Publish another version
-
-After making changes to the asset, export the new USD file and add it through **New Version**.
-
-UVM creates:
-
-```text
-hero_character/
-├── hero_character.usd
-├── v001/
-│   └── hero_character_v001.usd
-└── v002/
-    └── hero_character_v002.usd
-```
-
-The existing downstream references do not need to change.
-
-### 7. Set the new version as current
-
-Select `v002` and choose **Set Current**.
-
-The wrapper changes from:
-
-```usda
-subLayers = [
-    @./v001/hero_character_v001.usd@
-]
-```
-
-to:
-
-```usda
-subLayers = [
-    @./v002/hero_character_v002.usd@
-]
-```
-
-Anything referencing `hero_character.usd` now receives `v002`.
-
-### 8. Inspect or open the version
-
-Select a version in UVM and use **Inspect** to view information about the file.
-
-If the standalone USD runtime is available, UVM can also launch `usdview` for the selected file.
-
-Without USD Python bindings, Inspect falls back to basic file information.
-
-## Typical VFX workflow
-
-UVM is intended to sit between the application where an asset is created and the applications that consume it:
-
-```text
-Houdini / Maya / Blender
-          │
-          │ Export USD
-          ▼
-     USD Version Manager
-          │
-       Publish
-          │
-     ┌────┴────┐
-     ▼         ▼
-   v001      v002
-     │         │
-     └────┬────┘
-          ▼
-    asset.usd
-     (wrapper)
-          │
-          ▼
-   ┌──────┼──────┐
-   ▼      ▼      ▼
- Shot   Render  Other Asset
-```
-
-The important concept is that **the wrapper remains stable while the version it points to changes**.
-
-This allows an asset to be updated without manually replacing references throughout a project.
-
-## Features
-
-* Open or create an asset root
-* Browse assets and their versions
-* Add new assets
-* Add new versions
-
-  * Copies an existing `.usd`, `.usda`, `.usdc` or `.usdz` file
-  * Automatically assigns the next version number
-  * Optional version comment
-* Set any version as **current**
-
-  * Updates the database
-  * Updates the on-disk wrapper's sublayer
-* Reveal a version's folder in Windows Explorer or the Linux file manager
-* Inspect versions
-
-  * Shows basic file information on all supported machines
-  * Shows real USD stage information when USD Python bindings are available
-* Launch standalone `usdview` when the bundled USD distribution is installed
-
-## Running from source
-
-UVM requires Python 3.9+.
-
-Create a virtual environment:
+Install desktop runtime libraries with an administrator account (many are already installed by GNOME):
 
 ```bash
-python -m venv .venv
-```
-
-### Linux / macOS
-
-```bash
+sudo dnf install python3-pip mesa-libGL mesa-libEGL libxkbcommon libxkbcommon-x11 \
+  libxcb xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms \
+  xcb-util-renderutil dbus-libs fontconfig libXcursor libXi libXrandr \
+  libXrender libXfixes libSM libICE
+python3 --version  # check your required Python 3.9.12 installation
+python3 -m venv .venv
 source .venv/bin/activate
-```
-
-### Windows PowerShell
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-Install the application dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Run UVM from the project root:
-
-```bash
+python -m pip install .
 python -m usdvm.app
 ```
 
-Running it as a module is recommended because the application uses package-relative imports.
+Run from your GNOME desktop session. Qt selects Wayland or X11 from the session. If a Wayland-specific issue occurs, test XWayland with `QT_QPA_PLATFORM=xcb python -m usdvm.app`. Do not set `offscreen` for interactive use. OpenGL preview requires a working OpenGL 3.2 core context and suitable Mesa/vendor drivers.
 
-## USD inspection
+### Windows 11
 
-UVM itself does **not** require `pxr`.
-
-If the Python environment contains the USD Python bindings, the Inspect panel can read actual USD stage information such as:
-
-* Prim count
-* Default prim
-* Up axis
-* Stage information
-
-Without `pxr`, UVM falls back to basic file information rather than failing.
-
-### Standalone USD
-
-For `usdview` and full USD inspection, UVM uses a standalone NVIDIA USD distribution rather than relying on another application such as Gaffer or Houdini.
-
-The current distribution is:
-
-```text
-usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1
-```
-
-It contains its own:
-
-```text
-python/
-    python.exe
-
-lib/
-    python/
-        pxr/
-
-bin/
-    usdview
-    usdview.cmd
-
-pip-packages/
-plugin/
-libraries/
-```
-
-The bundled Python runtime is **Python 3.12**, and the `pxr` bindings belong to this USD installation.
-
-UVM therefore does **not** install `pxr` into its own Python virtual environment.
-
-The architecture is:
-
-```text
-UVM
-├── .venv
-│   └── Python 3.11
-│       ├── PySide6
-│       └── UVM
-│
-└── Standalone USD
-    └── Python 3.12
-        ├── pxr
-        └── usdview
-```
-
-This separation avoids Python-version conflicts with other applications that may provide their own USD installation.
-
-## Standalone USD layout
-
-When running from source, the standalone USD distribution is expected alongside the UVM project:
-
-```text
-UVM/
-├── usdvm/
-├── .venv/
-├── run.py
-├── requirements.txt
-└── usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1/
-    ├── bin/
-    ├── lib/
-    ├── python/
-    ├── pip-packages/
-    ├── plugin/
-    └── libraries/
-```
-
-The launcher explicitly uses:
-
-```text
-usd...\python\python.exe
-```
-
-to run:
-
-```text
-usd...\bin\usdview
-```
-
-and constructs the required `PATH`, `PYTHONPATH` and MaterialX environment for the standalone USD distribution.
-
-It does **not** use:
-
-```python
-shutil.which("usdview")
-```
-
-because another application may provide a different `usdview` on the system `PATH`.
-
-For example, Gaffer can provide its own USD environment, which may not contain the Python modules required by this particular USD distribution.
-
-## PyInstaller builds
-
-UVM can be packaged as a standalone executable using PyInstaller.
-
-Build with:
+Install 64-bit Python 3.11, then use PowerShell:
 
 ```powershell
-pyinstaller --onefile run.py
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\python.exe -m usdvm.app
 ```
 
-For development/debugging, avoid `--noconsole` so that Python errors remain visible:
+Activation is optional. This avoids changing PowerShell execution policy. The installed `uvm` command also starts the app. If a DLL dependency is missing on a clean machine, install Microsoft's supported Visual C++ 2015–2022 x64 runtime.
+
+For development, use `python -m pip install -e ".[dev]"` instead. `requirements.txt` contains the same runtime pins for existing source workflows; `pip install .` also installs package metadata and the desktop entry point.
+
+## Asset workflow
+
+1. Open or create a project folder.
+2. Add an asset (portable names use letters, numbers, `_` and `-`; Windows device names are rejected).
+3. Add a USD file as a new version. UVM copies the selected file to `hero/v001/hero.usda`, preserving its extension.
+4. Set a version current. UVM atomically replaces `hero/hero.usd` with a text sublayer wrapper pointing at that version.
+5. Reference `hero/hero.usd` in downstream applications. Later version changes keep this reference stable.
+
+```text
+project/
+├── .usdvm/usdvm.db
+└── hero/
+    ├── hero.usd             # stable wrapper
+    ├── v001/hero.usda
+    └── v002/hero.usda
+```
+
+The scanner also recognizes the earlier `hero_v001.usda` naming convention. Existing version directories are never overwritten. SQLite stores comments, version numbers and the current-version index. Rescan imports on-disk asset/version folders and reconciles current versions from wrappers. Removing an asset from the index removes its metadata, leaves files intact, and Rescan can register it again.
+
+USD files with relative references, payloads or texture dependencies must retain a valid dependency layout after copying. UVM copies the selected file only; it does not collect or rewrite a stage's dependencies. Package a self-contained USDZ or prepare the dependency layout yourself. This is a local, single-user tool; simultaneous publishing and shared production databases are not supported.
+
+## Inspection and viewers
+
+The pinned `usd-core` wheel supplies `pxr` for stage inspection and in-app mesh loading. It does **not** supply `usdview`. The preview handles polygon meshes and uses fan triangulation; it is not a full Hydra renderer, does not render textures/materials, and is not a fidelity check for concave polygons or animated scenes.
+
+Standalone `usdview` is optional and runs in its own Python environment. Set `UVM_USD_ROOT` to a complete distribution built for the destination operating system:
+
+- Windows: `bin/usdview`, `python/python.exe`, and the distribution's libraries.
+- Linux: `bin/usdview`, `python/bin/python3` (or `bin/python3`), and the distribution's libraries.
+
+The launcher uses only this runtime and does not search unrelated DCC installations on PATH. Its Python can differ from UVM's Python. Without `UVM_USD_ROOT`, the legacy Windows NVIDIA directory beside the source checkout or frozen executable is tried. Do not copy Windows USD binaries onto Linux. The optional Windows download helper requires an independently obtained SHA-256 checksum.
+
+## Checks and distribution
+
+```bash
+python -m pip install -e ".[dev,bundle]"
+python -m pytest -q
+python -m pip check
+python -m build
+python -m twine check dist/*
+```
+
+For a headless functional check:
+
+```bash
+QT_QPA_PLATFORM=offscreen python -m usdvm.app --smoke-test
+```
+
+PowerShell equivalent:
 
 ```powershell
-pyinstaller --onefile run.py
+$env:QT_QPA_PLATFORM = 'offscreen'
+python -m usdvm.app --smoke-test
+Remove-Item Env:QT_QPA_PLATFORM
 ```
 
-Once the build is working correctly, a windowed build can be produced with:
+The smoke test exercises USD composition, mesh loading, SQLite/project rescan and Qt startup/shutdown. Headless checks cannot validate OpenGL rendering, native file dialogs or GNOME integration.
 
-```powershell
-pyinstaller --onefile --noconsole run.py
-```
-
-### Important: USD is external to the executable
-
-The standalone USD distribution should **not** be bundled into the PyInstaller executable.
-
-A portable distribution should look like:
-
-```text
-dist/
-├── run.exe
-│
-└── usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1/
-    ├── bin/
-    ├── lib/
-    ├── python/
-    ├── pip-packages/
-    ├── plugin/
-    └── libraries/
-```
-
-The UVM launcher detects whether it is running from source or from a frozen PyInstaller executable.
-
-When running from source, it resolves the USD installation relative to the UVM project.
-
-When running as an executable, it resolves the USD installation relative to the executable.
-
-This allows the executable and USD distribution to be moved together without hard-coding a user's development path.
-
-### Why `pxr` is not packaged by PyInstaller
-
-`pxr` is part of the standalone USD distribution, not a dependency that needs to be installed into UVM's `.venv`.
-
-The executable therefore launches the standalone USD Python interpreter when starting `usdview`.
-
-Conceptually:
-
-```text
-run.exe
-   │
-   └── launches
-         │
-         ├── standalone USD python.exe
-         │
-         └── standalone USD bin/usdview
-                    │
-                    └── lib/python/pxr
-```
-
-This keeps the UVM application and USD runtime separate.
-
-## Getting the standalone USD package
-
-The standalone NVIDIA USD distribution is distributed separately from this project.
-
-The required package is:
-
-```text
-usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1
-```
-
-The extracted directory should be placed alongside the UVM project when developing from source, or alongside `run.exe` when using the packaged application.
-
-The USD distribution itself should generally **not be committed to Git**, since it is a large third-party binary package.
-
-A setup script can download and extract the required NVIDIA distribution automatically.
-
-## Notes / things you'll likely want to extend
-
-* **New Version** currently copies an existing file rather than creating a blank stage. This matches most VFX workflows where you are publishing something already built in Houdini, Maya, Blender, etc.
-* There is currently no locking or multi-user support. SQLite is suitable for local/single-user workflows, but a shared production system would eventually benefit from a proper server/database architecture.
-* `author` is stored per version, but the UI does not currently set it automatically. A simple improvement would be using `getpass.getuser()` as the default author.
-* The filesystem remains the source of truth; the database should not be treated as the authoritative location of the USD files.
-* The standalone USD runtime is deliberately kept separate from UVM's Python environment to avoid conflicts with Houdini, Gaffer, or other USD installations.
-* The USD version can be updated independently by replacing the standalone USD distribution and updating the configured distribution name/path.
+Build the portable directory on each target platform with `python -m PyInstaller --clean --noconfirm run.spec`. Distribute the entire `dist/uvm` directory, not only its executable. Build Linux binaries on Rocky 9.6; binaries built on newer Linux systems may require a newer glibc. See [RELEASING.md](docs/RELEASING.md) for acceptance checks and known release gates.

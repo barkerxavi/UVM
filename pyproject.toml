@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68,<76"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usd-version-manager"
+version = "0.1.0"
+description = "Desktop manager for sequential USD asset versions"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "PySide6==6.6.3.1",
+    "numpy==1.26.4",
+    "usd-core==25.5.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.5", "build==1.2.2.post1", "twine==6.1.0"]
+bundle = ["pyinstaller==6.12.0"]
+
+[project.gui-scripts]
+uvm = "usdvm.app:main"
+
+[tool.setuptools.packages.find]
+include = ["usdvm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

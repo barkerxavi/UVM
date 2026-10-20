@@ -1,10 +1,10 @@
-import re
-import os
 import sys
+import sqlite3
+from functools import wraps
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QTimer
 from PySide6.QtGui import QSurfaceFormat
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from .db import ProjectDB
+from . import __version__
 from . import scanner
 from . import usd_writer
 from . import usdview_launcher
@@ -22,7 +23,6 @@ from .gl_viewer import MeshLoadThread, UsdMeshViewer
 
 ORG = "XaviTools"
 APP = "USDVersionManager"
-ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 ORANGE = "#ff7a1a"
 ORANGE_DARK = "#cc5f0f"
@@ -113,10 +113,21 @@ QMessageBox, QInputDialog, QFileDialog {{
 """
 
 
+def report_operation_errors(method):
+    """Keep recoverable filesystem/database failures inside the desktop UI."""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            QMessageBox.warning(self, "Operation failed", str(exc))
+    return guarded
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("USD Version Manager")
+        self.setWindowTitle(f"USD Version Manager {__version__}")
         self.resize(1350, 650)
 
         self.settings = QSettings(ORG, APP)
@@ -146,7 +157,7 @@ class MainWindow(QMainWindow):
         self.btn_browse_root = QPushButton("Browse...")
         self.btn_go_root = QPushButton("Open")
         self.btn_new_asset = QPushButton("New Asset...")
-        self.btn_delete_asset = QPushButton("Delete Asset...")
+        self.btn_delete_asset = QPushButton("Remove from Index...")
         self.btn_rescan = QPushButton("Rescan")
         top.addWidget(QLabel("Asset root:"))
         top.addWidget(self.root_edit, 1)
@@ -306,15 +317,19 @@ class MainWindow(QMainWindow):
                 return
         self.open_root(path)
 
+    @report_operation_errors
     def open_root(self, root: Path):
+        root = Path(root).resolve()
+        new_db = ProjectDB(root)
         if self.db:
             self.db.close()
         self.root = root
-        self.db = ProjectDB(root)
+        self.db = new_db
         self.settings.setValue("last_root", str(root))
         self.root_edit.setText(str(root))
         self.rescan()
 
+    @report_operation_errors
     def rescan(self):
         """Reconcile the database with what's actually on disk: pick up
         asset folders and v### versions that were added outside the app,
@@ -355,6 +370,7 @@ class MainWindow(QMainWindow):
         self._clear_inspection()
         self.statusBar().showMessage(f"{self.asset_list.count()} asset(s)")
 
+    @report_operation_errors
     def new_asset(self):
         if not self.db:
             QMessageBox.information(self, "No project", "Open an asset root first.")
@@ -363,14 +379,8 @@ class MainWindow(QMainWindow):
         if not ok or not name.strip():
             return
         name = name.strip()
-        if not ASSET_NAME_RE.match(name):
-            QMessageBox.warning(
-                self, "Invalid name",
-                "Asset names can only contain letters, numbers, underscores and hyphens "
-                "(no spaces or slashes) - USD and file paths get unreliable otherwise.",
-            )
-            return
-        if self.db.get_asset(name):
+        scanner.validate_asset_name(name)
+        if any(row["name"].casefold() == name.casefold() for row in self.db.list_assets()):
             QMessageBox.information(self, "Already exists", f"An asset named '{name}' already exists.")
             return
         adir = scanner.asset_dir(self.root, name)
@@ -385,6 +395,7 @@ class MainWindow(QMainWindow):
         self.db.add_asset(name)
         self.rescan()
 
+    @report_operation_errors
     def delete_asset(self):
         asset_id = self._selected_asset_id()
         if asset_id is None:
@@ -392,7 +403,8 @@ class MainWindow(QMainWindow):
             return
         if QMessageBox.question(
             self, "Confirm Deletion",
-            "Are you sure you want to delete this asset and all its versions?"
+            "Remove this asset and its metadata from the index? Files will remain on disk "
+            "and Rescan will register them again."
         ) != QMessageBox.Yes:
             return
         self.db.remove_asset(asset_id)
@@ -441,6 +453,7 @@ class MainWindow(QMainWindow):
             return None
         return self.version_table.item(row, 0).data(Qt.UserRole)
 
+    @report_operation_errors
     def new_version(self):
         asset_id = self._selected_asset_id()
         if asset_id is None:
@@ -455,13 +468,14 @@ class MainWindow(QMainWindow):
             return
         comment, ok = QInputDialog.getText(self, "Version comment", "Comment (optional):")
         if not ok:
-            comment = ""
+            return
 
         version_num = self.db.next_version_num(asset_id)
         dest = scanner.create_version_from_file(self.root, asset["name"], version_num, Path(src))
         rel_path = dest.relative_to(self.root)
         self.db.add_version(asset_id, version_num, rel_path, author="", comment=comment.strip())
         self._load_versions(asset_id)
+        self.version_table.selectRow(self.version_table.rowCount() - 1)
         self.statusBar().showMessage(f"Added v{version_num:03d} for {asset['name']}")
 
         if QMessageBox.question(
@@ -470,6 +484,7 @@ class MainWindow(QMainWindow):
         ) == QMessageBox.Yes:
             self.set_current_version()
 
+    @report_operation_errors
     def set_current_version(self):
         asset_id = self._selected_asset_id()
         version_id = self._selected_version_id()
@@ -479,6 +494,8 @@ class MainWindow(QMainWindow):
         asset = self.db.get_asset_by_id(asset_id)
         version = self.db.get_version(version_id)
         vfile = self.root / version["file_path"]
+        if not vfile.is_file():
+            raise FileNotFoundError(vfile)
         wrapper = scanner.wrapper_path(self.root, asset["name"])
         rel = vfile.relative_to(wrapper.parent)
         usd_writer.write_sublayer_wrapper(wrapper, str(rel).replace("\\", "/"))
@@ -488,6 +505,7 @@ class MainWindow(QMainWindow):
             f"{asset['name']} -> v{version['version_num']:03d}  ({wrapper.name} updated)"
         )
 
+    @report_operation_errors
     def reveal_selected(self):
         asset_id = self._selected_asset_id()
         version_id = self._selected_version_id()
@@ -498,6 +516,7 @@ class MainWindow(QMainWindow):
             asset = self.db.get_asset_by_id(asset_id)
             scanner.reveal_in_file_manager(scanner.asset_dir(self.root, asset["name"]))
 
+    @report_operation_errors
     def inspect_selected(self):
         version_id = self._selected_version_id()
         if version_id is None:
@@ -581,8 +600,8 @@ class MainWindow(QMainWindow):
             self.btn_launch_usdview.setEnabled(True)
         else:
             self.usdview_status.setText(
-                "usdview not found on PATH. Install USD (e.g. 'pip install usd-core') "
-                "or add your USD build's bin/ folder to PATH to enable this."
+                "Optional standalone usdview is unavailable. Set UVM_USD_ROOT to a "
+                "complete USD runtime for this platform. usd-core provides inspection, not usdview."
             )
             self.btn_launch_usdview.setEnabled(False)
 
@@ -608,7 +627,7 @@ class MainWindow(QMainWindow):
 
         try:
             proc = usdview_launcher.launch(target)
-        except FileNotFoundError as e:
+        except OSError as e:
             QMessageBox.warning(self, "usdview not found", str(e))
             return
         self._usdview_procs.append(proc)
@@ -671,12 +690,27 @@ class MainWindow(QMainWindow):
         loader.start()
 
     def closeEvent(self, event):
+        # QThread must not be destroyed while USD is still loading a mesh.
+        if any(loader.isRunning() for loader in self._mesh_loaders):
+            self.statusBar().showMessage("Waiting for USD mesh loading to finish before closing…")
+            event.ignore()
+            QTimer.singleShot(100, self.close)
+            return
         if self.db:
             self.db.close()
+            self.db = None
         super().closeEvent(event)
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="USD Version Manager")
+    parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--smoke-test", action="store_true", help="Check Qt, USD and project operations, then exit")
+    options = parser.parse_args()
+    if options.smoke_test:
+        from .diagnostics import smoke_test
+        return smoke_test()
     surface_format = QSurfaceFormat()
     surface_format.setVersion(3, 2)
     surface_format.setProfile(QSurfaceFormat.CoreProfile)
@@ -690,4 +724,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

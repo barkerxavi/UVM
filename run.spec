@@ -1,38 +1,15 @@
-# -*- mode: python ; coding: utf-8 -*-
+# Build on each target OS: python -m PyInstaller --clean --noconfirm run.spec
+from PyInstaller.utils.hooks import collect_all
 
-
+usd_data, usd_binaries, usd_imports = collect_all('pxr')
 a = Analysis(
-    ['run.py'],
-    pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-    optimize=0,
+    ['run.py'], pathex=[], binaries=usd_binaries, datas=usd_data,
+    hiddenimports=usd_imports, hookspath=[], hooksconfig={}, runtime_hooks=[],
+    excludes=[], noarchive=False,
 )
 pyz = PYZ(a.pure)
-
 exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name='run',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
+    pyz, a.scripts, [], exclude_binaries=True, name='uvm',
+    debug=False, strip=False, upx=False, console=True,
 )
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='uvm')

@@ -12,6 +12,14 @@ VERSION_DIR_RE = re.compile(r"^v(\d+)$")
 USD_EXTS = (".usd", ".usda", ".usdc", ".usdz")
 
 
+def validate_asset_name(name: str):
+    """Apply the same portable filename rules on Linux and Windows."""
+    reserved = {"CON", "PRN", "AUX", "NUL"}
+    reserved.update(f"{prefix}{i}" for prefix in ("COM", "LPT") for i in range(1, 10))
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name.upper() in reserved:
+        raise ValueError("Use letters, numbers, _ or - and avoid Windows device names (CON, NUL, COM1, etc.).")
+
+
 def asset_dir(root: Path, asset_name: str) -> Path:
     return Path(root) / asset_name
 
@@ -46,7 +54,7 @@ def discover_versions(root: Path, asset_name: str):
             for f in vdir.iterdir()
             if f.is_file()
             and f.suffix.lower() in USD_EXTS
-            and f.stem == asset_name
+            and f.stem in (asset_name, f"{asset_name}_v{int(m.group(1)):03d}")
         )
         if not usd_files:
             continue
@@ -66,11 +74,24 @@ def wrapper_path(root: Path, asset_name: str) -> Path:
 
 
 def create_version_from_file(root: Path, asset_name: str, version_num: int, source_file: Path) -> Path:
+    validate_asset_name(asset_name)
+    if version_num < 1:
+        raise ValueError("Version numbers must be positive.")
+    source_file = Path(source_file)
+    if source_file.suffix.lower() not in USD_EXTS:
+        raise ValueError("Select a .usd, .usda, .usdc or .usdz file.")
+    if not source_file.is_file():
+        raise FileNotFoundError(source_file)
     vdir = version_dir(root, asset_name, version_num)
-    vdir.mkdir(parents=True, exist_ok=True)
+    vdir.mkdir(parents=True, exist_ok=False)
     ext = source_file.suffix or ".usd"
     dest = vdir / f"{asset_name}{ext}"
-    shutil.copy2(source_file, dest)
+    try:
+        shutil.copy2(source_file, dest)
+    except OSError:
+        dest.unlink(missing_ok=True)
+        vdir.rmdir()
+        raise
     return dest
 
 

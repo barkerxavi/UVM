@@ -1,0 +1,64 @@
+name: Release checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python: '3.9.12'
+          - os: windows-2022
+            python: '3.11'
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0
+      - run: python -m pip install ".[dev,bundle]"
+      - run: python -m pip check
+      - run: python -m pytest -q
+      - run: python -m usdvm.app --smoke-test
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - run: python -m PyInstaller --clean --noconfirm run.spec
+      - if: runner.os == 'Windows'
+        run: .\dist\uvm\uvm.exe --smoke-test
+      - if: runner.os == 'Linux'
+        run: ./dist/uvm/uvm --smoke-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-${{ runner.os }}-py${{ matrix.python }}
+          path: dist/
+  rocky:
+    runs-on: ubuntu-22.04
+    container: rockylinux/rockylinux:9.6
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Keep system packages on the Rocky 9.6 vault
+        run: |
+          sed -i -e 's|^mirrorlist=|#mirrorlist=|' -e 's|^#baseurl=http://dl.rockylinux.org/$contentdir/$releasever/|baseurl=https://dl.rockylinux.org/vault/rocky/9.6/|' /etc/yum.repos.d/rocky*.repo
+          dnf -y install git python3-pip mesa-libGL mesa-libEGL libxkbcommon libxkbcommon-x11 libxcb xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil dbus-libs fontconfig libXcursor libXi libXrandr libXrender libXfixes libSM libICE
+      - uses: actions/checkout@v4
+      - run: python3 -m venv /opt/uvm
+      - run: /opt/uvm/bin/python -m pip install --upgrade pip
+      - run: /opt/uvm/bin/python -m pip install ".[dev,bundle]"
+      - run: /opt/uvm/bin/python -m pytest -q
+      - run: /opt/uvm/bin/python -m usdvm.app --smoke-test
+      - run: /opt/uvm/bin/python -m PyInstaller --clean --noconfirm run.spec
+      - run: ./dist/uvm/uvm --smoke-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-rocky-9.6
+          path: dist/uvm/

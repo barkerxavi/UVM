@@ -1,3 +1,10 @@
+param(
+    # Obtain the expected digest independently from a trusted distributor.
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Fa-f0-9]{64}$')]
+    [string]$ExpectedSha256
+)
+
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
@@ -20,9 +27,13 @@ Invoke-WebRequest `
     -OutFile $ZipPath
 
 Write-Host "Extracting USD..."
+if ((Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash -ne $ExpectedSha256) {
+    Remove-Item $ZipPath -Force
+    throw "USD archive SHA-256 verification failed."
+}
 Expand-Archive `
     -Path $ZipPath `
-    -DestinationPath $ProjectRoot/$UsdVersion
+    -DestinationPath $UsdDir
 
 Remove-Item $ZipPath -Force
 

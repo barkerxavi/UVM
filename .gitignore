@@ -7,3 +7,7 @@ usd.py312.windows-x86_64.usdview.release-v25.08.71e038c1/*
 build/
 dist/
 .DS_Store
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.venv*/

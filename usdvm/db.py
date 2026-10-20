@@ -34,6 +34,8 @@ class ProjectDB:
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        # Earlier Windows projects stored backslashes; keep relative paths portable.
+        self.conn.execute("UPDATE versions SET file_path = REPLACE(file_path, char(92), '/') WHERE instr(file_path, char(92)) > 0")
         self.conn.commit()
 
     def close(self):
@@ -46,8 +48,9 @@ class ProjectDB:
         return self.get_asset(name)
 
     def remove_asset(self, asset_id: int):
-        self.conn.execute("DELETE FROM assets WHERE id=?", (asset_id,))
-        self.conn.commit()
+        with self.conn:
+            self.conn.execute("DELETE FROM versions WHERE asset_id=?", (asset_id,))
+            self.conn.execute("DELETE FROM assets WHERE id=?", (asset_id,))
 
     def get_asset(self, name: str):
         return self.conn.execute("SELECT * FROM assets WHERE name=?", (name,)).fetchone()
@@ -70,7 +73,7 @@ class ProjectDB:
         cur = self.conn.execute(
             "INSERT INTO versions(asset_id, version_num, file_path, created_at, author, comment) "
             "VALUES (?,?,?,?,?,?)",
-            (asset_id, version_num, str(file_path), now, author, comment),
+            (asset_id, version_num, Path(file_path).as_posix().replace("\\", "/"), now, author, comment),
         )
         self.conn.commit()
         return cur.lastrowid
