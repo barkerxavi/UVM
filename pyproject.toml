@@ -25,5 +25,8 @@ uvm = "usdvm.app:main"
 [tool.setuptools.packages.find]
 include = ["usdvm*"]
 
+[tool.setuptools.package-data]
+usdvm = ["assets/*.png", "assets/*.ico"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -20,6 +20,7 @@ from . import scanner
 from . import usd_writer
 from . import usdview_launcher
 from .gl_viewer import MeshLoadThread, UsdMeshViewer
+from .desktop import application_icon, configure_application, configure_windows_identity, install_linux_shortcut
 
 ORG = "XaviTools"
 APP = "USDVersionManager"
@@ -127,6 +128,7 @@ def report_operation_errors(method):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(application_icon())
         self.setWindowTitle(f"USD Version Manager {__version__}")
         self.resize(1350, 650)
 
@@ -147,6 +149,10 @@ class MainWindow(QMainWindow):
 
     # ---------------- UI ----------------
     def _build_ui(self):
+        if sys.platform.startswith('linux'):
+            application_menu = self.menuBar().addMenu("Application")
+            shortcut = application_menu.addAction("Install Application Shortcut")
+            shortcut.triggered.connect(self.install_application_shortcut)
         central = QWidget()
         self.setCentralWidget(central)
         outer = QVBoxLayout(central)
@@ -288,6 +294,15 @@ class MainWindow(QMainWindow):
         self.btn_open_gl_viewer.clicked.connect(self.open_gl_viewer)
         self.gl_representation.currentIndexChanged.connect(self._reload_gl_representation)
         self.prim_tree.currentItemChanged.connect(self._show_prim_details)
+
+    @report_operation_errors
+    def install_application_shortcut(self):
+        entry = install_linux_shortcut()
+        QMessageBox.information(
+            self, "Application shortcut installed",
+            f"UVM is registered in your applications menu. You can pin it to Favorites.\n\n{entry}\n\n"
+            "Reinstall the shortcut if you move the executable.",
+        )
 
     # ---------------- project ----------------
     def choose_root(self):
@@ -707,7 +722,12 @@ def main():
     parser = argparse.ArgumentParser(description="USD Version Manager")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--smoke-test", action="store_true", help="Check Qt, USD and project operations, then exit")
+    parser.add_argument("--install-desktop-shortcut", action="store_true", help="Register this executable in the Linux applications menu")
     options = parser.parse_args()
+    if options.install_desktop_shortcut:
+        print(install_linux_shortcut())
+        return 0
+    configure_windows_identity()
     if options.smoke_test:
         from .diagnostics import smoke_test
         return smoke_test()
@@ -717,6 +737,7 @@ def main():
     surface_format.setDepthBufferSize(24)
     QSurfaceFormat.setDefaultFormat(surface_format)
     app = QApplication(sys.argv)
+    configure_application(app)
     app.setStyleSheet(THEME_QSS)
     win = MainWindow()
     win.show()

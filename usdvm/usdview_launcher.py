@@ -57,4 +57,6 @@ def launch(path: Path, extra_args=None):
     return subprocess.Popen(
         [str(_python(root)), str(script), str(target), *(extra_args or [])],
         env=_usd_environment(), cwd=str(root),
+        # CREATE_NO_WINDOW keeps the optional Python-based viewer console-free too.
+        creationflags=0x08000000 if sys.platform == 'win32' else 0,
     )

@@ -34,13 +34,18 @@ jobs:
       - run: python -m PyInstaller --clean --noconfirm run.spec
       - if: runner.os == 'Windows'
         run: |
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path .\dist\uvm.exe))
+          $optionalHeader = [BitConverter]::ToInt32($bytes, 0x3c) + 24
+          if ([BitConverter]::ToUInt16($bytes, $optionalHeader + 68) -ne 2) {
+            throw 'Windows executable must use the GUI subsystem to avoid opening a console.'
+          }
           $portable = Join-Path $env:RUNNER_TEMP 'UVM portable test'
           New-Item -ItemType Directory -Force $portable | Out-Null
           Copy-Item .\dist\uvm.exe (Join-Path $portable 'uvm.exe')
           Push-Location $portable
           try {
-            .\uvm.exe --smoke-test
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $process = Start-Process -FilePath .\uvm.exe -ArgumentList '--smoke-test' -Wait -PassThru
+            if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           } finally { Pop-Location }
       - if: runner.os == 'Linux'
         run: |

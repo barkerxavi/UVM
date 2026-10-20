@@ -81,6 +81,14 @@ Standalone `usdview` is optional and runs in its own Python environment. Set `UV
 
 The launcher uses only this runtime and does not search unrelated DCC installations on PATH. Its Python can differ from UVM's Python. Without `UVM_USD_ROOT`, the legacy Windows NVIDIA directory beside the source checkout or frozen executable is tried. Do not copy Windows USD binaries onto Linux. The optional Windows download helper requires an independently obtained SHA-256 checksum.
 
+## Application icon and desktop shortcuts
+
+The executable and application window use the bundled orange cube icon. Windows builds use the GUI subsystem, so opening `uvm.exe` does not create a console window. Create a Windows desktop shortcut to the executable, or pin it to the taskbar after launching. Windows can cache the old icon; recreate existing shortcuts/pins after replacing an older build.
+
+On Linux, place the single executable in its permanent location, launch it and choose **Application → Install Application Shortcut**. Alternatively run `./uvm --install-desktop-shortcut`. This registers UVM in your GNOME applications menu with its icon and `Terminal=false`, without administrator access. Launch it from the applications menu and add it to Favorites. If you move the executable, reinstall the shortcut. The icon is copied into your user icon directory so it remains available after the single-file application's temporary extraction directory is removed.
+
+Running `./uvm` from an already open terminal uses that terminal; launching the installed applications-menu shortcut does not open one. The Linux executable still depends on your system desktop/OpenGL libraries.
+
 ## Checks and distribution
 
 ```bash

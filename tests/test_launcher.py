@@ -23,6 +23,7 @@ def test_launch_uses_own_runtime(tmp_path, monkeypatch, platform, python):
     assert args[0] == [str(root / python), str(root / 'bin/usdview'), str(asset)]
     assert '/unrelated/dcc' not in kwargs['env']['PYTHONPATH']
     assert 'QT_PLUGIN_PATH' not in kwargs['env']
+    assert kwargs['creationflags'] == (0x08000000 if platform == 'win32' else 0)
 
 
 def test_frozen_location(tmp_path, monkeypatch):

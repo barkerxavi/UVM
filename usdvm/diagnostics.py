@@ -32,6 +32,10 @@ def smoke_test():
         if count != 3 or len(data) != 72:
             raise RuntimeError('USD mesh triangulation failed')
         app = QApplication.instance() or QApplication([])
+        from .desktop import configure_application
+        configure_application(app)
+        if app.windowIcon().isNull():
+            raise RuntimeError('Bundled application icon is missing')
         win = MainWindow()
         win.open_root(root)
         win.asset_list.setCurrentRow(0)
