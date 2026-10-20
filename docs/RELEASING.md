@@ -4,9 +4,11 @@ The initial package version is 0.1.0. No release has been published by this clea
 
 ## Current validation evidence
 
-The cleanup was validated on the cloud Linux host with CPython 3.9.12 and 3.11.17: all 24 regression tests passed on each. Wheel/sdist builds and metadata checks passed. A fresh wheel installation outside the checkout and a PyInstaller directory bundle both passed the functional headless smoke check. Runtime dependency wheels were successfully resolved/downloaded for Windows x64/Python 3.11; those binaries were not executed on Windows.
+The cleanup was validated on the cloud Linux host with CPython 3.9.12 and 3.11.17: all 24 regression tests passed on each. Wheel/sdist builds and metadata checks passed. A fresh wheel installation outside the checkout and an earlier PyInstaller directory bundle both passed the functional headless smoke check. Runtime dependency wheels were successfully resolved/downloaded for Windows x64/Python 3.11; those binaries were not executed on Windows.
 
 Rocky 9.6 container startup succeeded, but its dependency installation was blocked by the cloud network policy denying Rocky package mirrors. The required mirror domains were saved in the cloud configuration draft; that does not activate network changes. Rocky runtime checks, native GNOME 40.4.0/OpenGL checks, Windows 11 execution, and remote CI execution remain unverified. The local bundle is a Linux-host validation artifact, not a Rocky release binary.
+
+The subsequent single-file build also passed the headless smoke check after copying only the executable into an otherwise empty directory whose path contains spaces. This check was run on the Linux cloud host; the Windows and Rocky single-file builds still need their CI/native checks.
 
 ## Automated checks
 
@@ -17,7 +19,9 @@ The GitHub workflow tests Python 3.9.12 on Ubuntu and Python 3.11 on Windows Ser
 3. Run `python -m build` and `python -m twine check dist/*` before building the native bundle.
 4. Install the wheel into a second fresh environment, outside the checkout. Run `python -m usdvm.app --version` and `--smoke-test` with `QT_QPA_PLATFORM=offscreen`.
 5. Build `python -m PyInstaller --clean --noconfirm run.spec` on Windows 11/Python 3.11 and Rocky 9.6/Python 3.9.12 separately. Keep the console enabled until native acceptance passes. Do not ship an Ubuntu-built executable as the Rocky candidate.
-6. Run `dist/uvm/uvm --smoke-test` (Windows: `dist\uvm\uvm.exe`) in a clean environment with no source checkout on PYTHONPATH. Verify plugins and inspection still work. Archive the entire directory per OS and record SHA-256 hashes.
+6. Copy only `dist/uvm` (Windows: `dist\uvm.exe`) to an otherwise empty directory outside the checkout and run `./uvm --smoke-test` (Windows: `.\uvm.exe`) with `QT_QPA_PLATFORM=offscreen` and no source checkout on PYTHONPATH. Verify plugins and inspection still work without an adjacent `_internal` folder. CI performs this relocation check. Distribute the single executable per OS and record SHA-256 hashes. Linux archive packaging must preserve the executable permission bit.
+
+Single-file builds include Python, Qt and the USD inspection runtime. PyInstaller extracts bundled libraries at startup; writable executable temporary storage is required (a `noexec` temporary mount needs an administrator-approved executable location via TMPDIR). System desktop/OpenGL libraries and drivers remain prerequisites. Optional standalone usdview and user asset dependencies remain external.
 
 ## Native desktop acceptance gates
 

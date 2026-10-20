@@ -9,7 +9,6 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 exe = EXE(
-    pyz, a.scripts, [], exclude_binaries=True, name='uvm',
+    pyz, a.scripts, a.binaries, a.datas, [], name='uvm',
     debug=False, strip=False, upx=False, console=True,
 )
-coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='uvm')

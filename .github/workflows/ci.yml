@@ -33,9 +33,21 @@ jobs:
       - run: python -m twine check dist/*
       - run: python -m PyInstaller --clean --noconfirm run.spec
       - if: runner.os == 'Windows'
-        run: .\dist\uvm\uvm.exe --smoke-test
+        run: |
+          $portable = Join-Path $env:RUNNER_TEMP 'UVM portable test'
+          New-Item -ItemType Directory -Force $portable | Out-Null
+          Copy-Item .\dist\uvm.exe (Join-Path $portable 'uvm.exe')
+          Push-Location $portable
+          try {
+            .\uvm.exe --smoke-test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
       - if: runner.os == 'Linux'
-        run: ./dist/uvm/uvm --smoke-test
+        run: |
+          portable=$(mktemp -d)
+          cp dist/uvm "$portable/uvm"
+          cd "$portable"
+          ./uvm --smoke-test
       - uses: actions/upload-artifact@v4
         with:
           name: candidate-${{ runner.os }}-py${{ matrix.python }}
@@ -57,8 +69,12 @@ jobs:
       - run: /opt/uvm/bin/python -m pytest -q
       - run: /opt/uvm/bin/python -m usdvm.app --smoke-test
       - run: /opt/uvm/bin/python -m PyInstaller --clean --noconfirm run.spec
-      - run: ./dist/uvm/uvm --smoke-test
+      - run: |
+          portable=$(mktemp -d)
+          cp dist/uvm "$portable/uvm"
+          cd "$portable"
+          ./uvm --smoke-test
       - uses: actions/upload-artifact@v4
         with:
           name: candidate-rocky-9.6
-          path: dist/uvm/
+          path: dist/uvm
